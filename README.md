@@ -10,10 +10,22 @@
 | :----------------: | :--------------------------------: | :----------------: |
 |    GARMIN_EMAIL    |          佳明登录帐号邮箱          |                    |
 |  GARMIN_PASSWORD   |            佳明登录密码            |                    |
+| GARMIN_TOKEN_SALT | 用于加密 `GARTH_TOKEN` 的密钥材料 |                    |
 | GARMIN_AUTH_DOMAIN | 佳明区域（国际区填:COM 国区填:CN） |    (COM or CN)     |
 | GARMIN_NEWEST_NUM  |            最新记录条数            | (默认0，可写大于0) |
 |    COROS_EMAIL     |           高驰 登录邮箱            |                    |
 |   COROS_PASSWORD   |             高驰 密码              |                    |
+
+## GARTH_TOKEN 说明
+- 项目现在优先使用 `garth` 官方的 `GARTH_TOKEN` 会话串，而不是每次都用邮箱密码重新登录。
+- 首次运行或 token 失效时，脚本会使用 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 登录，然后把 `garth.client.dumps()` 生成的 `GARTH_TOKEN` 加密保存到 `db/garth_token.enc`。
+- 后续运行会先读取 `db/garth_token.enc`，使用 `GARMIN_TOKEN_SALT` 解密，再通过 `garth.client.loads(...)` 恢复会话，尽量减少频繁密码登录带来的反爬风险。
+- `db/garth_token.enc` 是密文文件，workflow 结束时会随仓库一起提交；`GARMIN_TOKEN_SALT` 必须配置为 GitHub Secret 或本地环境变量，且不要泄露。
+
+## garth 升级价值
+- `garth` 已从 `0.4.38` 升级到 `0.7.10`。
+- 升级区间内 `garth` 增强了 `GARTH_TOKEN`/`GARTH_HOME` 会话恢复机制，并连续修复了 Garmin SSO、Cloudflare、cookie 继承和 `Client app validation failed` 等登录相关问题。
+- `0.7.10` 还补充了动态 MFA method 支持，对当前 Garmin 登录链路更友好。
 
 ## Github配置步骤
 ### 1.参数配置
@@ -21,7 +33,7 @@
 ![打开Setting](doc/3451692931372_.pic.jpg)
 找到**Secrets and variables**点击**New repository secret**按钮
 ![Secrets and variables](/doc/3461692931472_.pic.jpg)
-打开**New repository secret**后将上述的参数填入，下图以佳明帐号为例,**Name**填写参数名,**Secret**填写你的信息，重复以上步骤填入五个参数即可
+打开**New repository secret**后将上述的参数填入，下图以佳明帐号为例,**Name**填写参数名,**Secret**填写你的信息。至少需要补齐 Garmin 与 Coros 的登录参数，并新增 `GARMIN_TOKEN_SALT` 用于加密 `GARTH_TOKEN`。
 ![填入参数](doc/3471692931624_.pic.jpg)
 
 ### 2.配置WorkFlow权限

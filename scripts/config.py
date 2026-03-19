@@ -17,3 +17,4 @@ GARMIN_FIT_DIR = os.path.join(parent, "garmin-fit")
 COROS_FIT_DIR = os.path.join(parent, "coros-fit")
 
 DB_DIR =  os.path.join(parent, "db")
+GARTH_TOKEN_FILE = os.path.join(DB_DIR, "garth_token.enc")

@@ -1,10 +1,28 @@
 import logging
 import os
 from enum import Enum, auto
+from functools import wraps
+
 import requests
 
 import garth
 
+try:
+    from config import GARTH_TOKEN_FILE
+    from garmin.garth_token_store import (
+        GarthTokenStoreError,
+        has_encrypted_token,
+        read_encrypted_token,
+        write_encrypted_token,
+    )
+except ModuleNotFoundError:
+    from scripts.config import GARTH_TOKEN_FILE
+    from scripts.garmin.garth_token_store import (
+        GarthTokenStoreError,
+        has_encrypted_token,
+        read_encrypted_token,
+        write_encrypted_token,
+    )
 
 from .garmin_url_dict import GARMIN_URL_DICT
 
@@ -12,32 +30,93 @@ logger = logging.getLogger(__name__)
 
 
 class GarminClient:
-  def __init__(self, email, password, auth_domain, newest_num):
+  def __init__(
+      self,
+      email,
+      password,
+      auth_domain,
+      newest_num=0,
+      token_salt=None,
+      token_path=GARTH_TOKEN_FILE,
+  ):
         self.auth_domain = auth_domain
         self.email = email
         self.password = password
         self.garthClient = garth
         self.newestNum = int(newest_num)
+        self.token_salt = token_salt
+        self.token_path = token_path
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
             "origin": GARMIN_URL_DICT.get("SSO_URL_ORIGIN"),
             "nk": "NT"
         }
-  
-  ## 登录装饰器
-  def login(func):    
-    def ware(self, *args, **kwargs):    
-      try:
-         garth.client.username
-      except Exception:
-        logger.warning("Garmin is not logging in or the token has expired.")
-        if self.auth_domain and str(self.auth_domain).upper() == "CN":
-          self.garthClient.configure(domain="garmin.cn")
-        self.garthClient.login(self.email, self.password)
-        
-        # del self.garthClient.sess.headers['User-Agent']
-        del self.garthClient.client.sess.headers['User-Agent']
 
+  def _configure_domain(self):
+      if self.auth_domain and str(self.auth_domain).upper() == "CN":
+          self.garthClient.configure(domain="garmin.cn")
+      else:
+          self.garthClient.configure(domain="garmin.com")
+
+  def _remove_garth_user_agent(self):
+      self.garthClient.client.sess.headers.pop("User-Agent", None)
+
+  def _persist_garth_token(self):
+      if not self.token_salt:
+          logger.warning(
+              "GARMIN_TOKEN_SALT is not configured, skip GARTH_TOKEN persistence."
+          )
+          return
+      garth_token = self.garthClient.client.dumps()
+      write_encrypted_token(self.token_path, self.token_salt, garth_token)
+
+  def _restore_session_from_token(self):
+      if not self.token_salt:
+          return False
+      if not has_encrypted_token(self.token_path):
+          return False
+
+      garth_token = read_encrypted_token(self.token_path, self.token_salt)
+      self.garthClient.client.loads(garth_token)
+      # Touch a protected resource to confirm the restored token is still usable.
+      self.garthClient.client.username
+      self._remove_garth_user_agent()
+      self._persist_garth_token()
+      return True
+
+  def _login_with_password(self):
+      if not self.email or not self.password:
+          raise GarminNoLoginException(
+              "GARMIN_EMAIL and GARMIN_PASSWORD are required when GARTH_TOKEN cannot be restored."
+          )
+      self._configure_domain()
+      self.garthClient.login(self.email, self.password)
+      self._remove_garth_user_agent()
+      self._persist_garth_token()
+
+  def ensure_login(self):
+      try:
+          self.garthClient.client.username
+          self._remove_garth_user_agent()
+          return
+      except Exception:
+          logger.warning("Garmin is not logged in or the GARTH_TOKEN has expired.")
+
+      try:
+          if self._restore_session_from_token():
+              return
+      except GarthTokenStoreError as err:
+          logger.warning("Failed to restore GARTH_TOKEN: %s", err)
+      except Exception as err:
+          logger.warning("GARTH_TOKEN validation failed: %s", err)
+
+      self._login_with_password()
+
+  ## 登录装饰器
+  def login(func):
+    @wraps(func)
+    def ware(self, *args, **kwargs):
+      self.ensure_login()
       return func(self, *args, **kwargs)
     return ware
   
@@ -106,6 +185,7 @@ class GarminClient:
     )
 
     if allowed_file_extension:
+       status = "UPLOAD_EXCEPTION"
        try:
         with open(activity_path, 'rb') as file:
           file_data = file.read()
@@ -127,9 +207,7 @@ class GarminClient:
               status = "DUPLICATE_ACTIVITY" 
        except Exception as e:
             print(e)
-            status = "UPLOAD_EXCEPTION"
-       finally:
-            return status
+       return status
     else:
         return "UPLOAD_EXCEPTION"
   
