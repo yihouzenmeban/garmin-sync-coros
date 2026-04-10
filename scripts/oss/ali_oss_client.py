@@ -2,11 +2,11 @@ import urllib3
 import json
 import oss2
 import os
-import certifi
 
 from oss2 import SizedFileAdapter, determine_part_size
 from oss2.models import PartInfo
 from utils.coros_oss_credients_utils import decode
+from utils.http_client_utils import build_http_client
 
 
 class AliOssClient:
@@ -18,7 +18,7 @@ class AliOssClient:
         self.security_token = None
         self.access_key_id = None
         self.access_key_secret = None
-        self.req = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+        self.req = build_http_client()
         self.client = None
         self.v = v
         self.initClient()

@@ -5,13 +5,17 @@ on:
   schedule:
     - cron: '0 0,7,20 * * ?'
 env:
-  GITHUB_NAME: XiaoSiHwang
-  GITHUB_EMAIL: 1009326507@qq.com
+  GITHUB_NAME: ${{ github.actor }}
+  GITHUB_EMAIL: ${{ format('{0}@users.noreply.github.com', github.actor) }}
   ## 佳明配置
   GARMIN_AUTH_DOMAIN: ${{ secrets.GARMIN_AUTH_DOMAIN }}
   GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
   GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
   GARMIN_TOKEN_SALT: ${{ secrets.GARMIN_TOKEN_SALT }}
+  GARMIN_LOGIN_MODE: browser
+  GARMIN_BROWSER_HEADLESS: '1'
+  GARMIN_BROWSER_CI_MODE: '1'
+  GARMIN_BROWSER_TIMEOUT_SECONDS: 180
 
   ## Coros配置
   COROS_EMAIL: ${{ secrets.COROS_EMAIL }}
@@ -26,10 +30,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python 3.10
+      - name: Set up Python 3.14
         uses: actions/setup-python@v3
         with:
-          python-version: '3.10'
+          python-version: '3.14'
       # from pdm
       - name: Set Variables
         id: set_variables
@@ -46,6 +50,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
         if: steps.pip-cache.outputs.cache-hit != 'true'
+      - name: Install Playwright Chromium
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
       - name: Run Garmin Sync Coros
         if: env.RUN_TYPE == 'garmin_to_coros'
         run: |

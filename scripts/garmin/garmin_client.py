@@ -9,6 +9,12 @@ import garth
 
 try:
     from config import GARTH_TOKEN_FILE
+    from garmin.generate_garth_token_browser import generate_token_via_browser
+    from garmin.garth_auth import (
+        apply_browser_user_agent,
+        configure_domain,
+        remove_garth_user_agent,
+    )
     from garmin.garth_token_store import (
         GarthTokenStoreError,
         has_encrypted_token,
@@ -17,6 +23,12 @@ try:
     )
 except ModuleNotFoundError:
     from scripts.config import GARTH_TOKEN_FILE
+    from scripts.garmin.generate_garth_token_browser import generate_token_via_browser
+    from scripts.garmin.garth_auth import (
+        apply_browser_user_agent,
+        configure_domain,
+        remove_garth_user_agent,
+    )
     from scripts.garmin.garth_token_store import (
         GarthTokenStoreError,
         has_encrypted_token,
@@ -53,13 +65,13 @@ class GarminClient:
         }
 
   def _configure_domain(self):
-      if self.auth_domain and str(self.auth_domain).upper() == "CN":
-          self.garthClient.configure(domain="garmin.cn")
-      else:
-          self.garthClient.configure(domain="garmin.com")
+      configure_domain(self.garthClient, self.auth_domain)
 
   def _remove_garth_user_agent(self):
-      self.garthClient.client.sess.headers.pop("User-Agent", None)
+      remove_garth_user_agent(self.garthClient)
+
+  def _apply_browser_user_agent(self):
+      apply_browser_user_agent(self.garthClient)
 
   def _persist_garth_token(self):
       if not self.token_salt:
@@ -90,9 +102,32 @@ class GarminClient:
               "GARMIN_EMAIL and GARMIN_PASSWORD are required when GARTH_TOKEN cannot be restored."
           )
       self._configure_domain()
+      self._apply_browser_user_agent()
       self.garthClient.login(self.email, self.password)
       self._remove_garth_user_agent()
       self._persist_garth_token()
+
+  def _should_use_browser_login(self):
+      return str(os.environ.get("GARMIN_LOGIN_MODE", "")).strip().lower() == "browser"
+
+  def _login_with_browser(self):
+      if not self.token_salt:
+          raise GarminNoLoginException(
+              "GARMIN_TOKEN_SALT is required when GARMIN_LOGIN_MODE=browser."
+          )
+      generate_token_via_browser(
+          env={
+              "GARMIN_AUTH_DOMAIN": self.auth_domain,
+              "GARMIN_EMAIL": self.email,
+              "GARMIN_PASSWORD": self.password,
+              "GARMIN_TOKEN_SALT": self.token_salt,
+          },
+          timeout_seconds=int(os.environ.get("GARMIN_BROWSER_TIMEOUT_SECONDS", "300")),
+      )
+      if not self._restore_session_from_token():
+          raise GarminNoLoginException(
+              "GARTH_TOKEN browser refresh completed, but session restore still failed."
+          )
 
   def ensure_login(self):
       try:
@@ -109,6 +144,10 @@ class GarminClient:
           logger.warning("Failed to restore GARTH_TOKEN: %s", err)
       except Exception as err:
           logger.warning("GARTH_TOKEN validation failed: %s", err)
+
+      if self._should_use_browser_login():
+          self._login_with_browser()
+          return
 
       self._login_with_password()
 

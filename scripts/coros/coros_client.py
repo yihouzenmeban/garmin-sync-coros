@@ -2,11 +2,10 @@ import urllib3
 import json
 import hashlib
 
-import certifi
-
 
 from coros.region_config import REGIONCONFIG
 from coros.sts_config import STS_CONFIG
+from utils.http_client_utils import build_http_client
 
 class CorosClient:
     
@@ -14,7 +13,7 @@ class CorosClient:
         
         self.email = email
         self.password = password
-        self.req = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+        self.req = build_http_client()
         self.accessToken = None
         self.userId = None
         self.regionId = None

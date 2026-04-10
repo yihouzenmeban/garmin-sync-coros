@@ -1,13 +1,13 @@
 import urllib3
 import json
 import boto3
-import certifi
 
 from boto3.s3.transfer import TransferConfig
 
 
 from oss.sts_token_error import StsTokenError
 from utils.coros_oss_credients_utils import decode
+from utils.http_client_utils import build_http_client
 
 class AwsOssClient:
   def __init__(self, bucket="eu-coros", service="aws", app_id="1660188068672619112", sign="877571111A1EE5316E4B590103D4B5B3", v=2):
@@ -18,7 +18,7 @@ class AwsOssClient:
     self.credentials = None
     self.access_key_id = None
     self.access_key_secret = None
-    self.req = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+    self.req = build_http_client()
     self.v = v
     self.client = None
     self.initClient()
@@ -65,6 +65,5 @@ class AwsOssClient:
           print(f"File {fileName} uploaded successfully!")
       except Exception as e:
           print(f"Upload failed: {e}")
-
 
 

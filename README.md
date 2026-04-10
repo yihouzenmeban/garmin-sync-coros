@@ -15,12 +15,85 @@
 | GARMIN_NEWEST_NUM  |            最新记录条数            | (默认0，可写大于0) |
 |    COROS_EMAIL     |           高驰 登录邮箱            |                    |
 |   COROS_PASSWORD   |             高驰 密码              |                    |
+|   HTTPS_PROXY      |   可选。COROS 域名访问异常时使用的 HTTPS 代理   |  http://host:port  |
+|    HTTP_PROXY      |   可选。与 HTTPS_PROXY 配套的 HTTP 代理   |  http://host:port  |
+|     NO_PROXY       | 可选。不走代理的域名白名单 | localhost,127.0.0.1 |
 
 ## GARTH_TOKEN 说明
 - 项目现在优先使用 `garth` 官方的 `GARTH_TOKEN` 会话串，而不是每次都用邮箱密码重新登录。
 - 首次运行或 token 失效时，脚本会使用 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 登录，然后把 `garth.client.dumps()` 生成的 `GARTH_TOKEN` 加密保存到 `db/garth_token.enc`。
 - 后续运行会先读取 `db/garth_token.enc`，使用 `GARMIN_TOKEN_SALT` 解密，再通过 `garth.client.loads(...)` 恢复会话，尽量减少频繁密码登录带来的反爬风险。
 - `db/garth_token.enc` 是密文文件，workflow 结束时会随仓库一起提交；`GARMIN_TOKEN_SALT` 必须配置为 GitHub Secret 或本地环境变量，且不要泄露。
+
+### 本地直接生成 GARTH_TOKEN
+- 如果只想在本地先生成并写入 `db/garth_token.enc`，可以先修改仓库根目录的 `.env.garmin.local`：
+
+```bash
+python scripts/garmin/generate_garth_token.py
+```
+
+- `.env.garmin.local` 默认内容如下：
+
+```bash
+GARMIN_AUTH_DOMAIN=COM
+GARMIN_EMAIL=your_garmin_email
+GARMIN_PASSWORD=your_garmin_password
+GARMIN_TOKEN_SALT=your_token_salt
+```
+
+- 脚本会优先读取 `.env.garmin.local`，如果你额外设置了同名系统环境变量，则系统环境变量优先。
+- 如果 `.env.garmin.local` 里配置了 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`，脚本也会一并注入到当前进程，`garth` 登录时会直接使用。
+- 脚本会优先自动切到仓库自己的 `.venv/bin/python` 运行，所以本地直接执行下面这条即可：
+
+```bash
+python3 scripts/garmin/generate_garth_token.py
+```
+
+- 如需指定其他 env 文件，可以这样运行：
+
+```bash
+GARMIN_ENV_FILE=./your-custom.env python scripts/garmin/generate_garth_token.py
+```
+
+- 脚本会强制重新登录 Garmin，随后把新的加密 token 写入 `db/garth_token.enc`。
+
+### 遇到 429 时改用浏览器登录生成 GARTH_TOKEN
+- 如果 Garmin/Cloudflare 对脚本登录持续返回 `429`，可以改用浏览器引导登录：
+
+```bash
+.venv/bin/pip install playwright
+.venv/bin/python -m playwright install chromium
+python3 scripts/garmin/generate_garth_token_browser.py
+```
+
+- 脚本会打开 Chromium 浏览器，你在页面中手动完成 Garmin 登录和 MFA。
+- 脚本现在会优先自动填写 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 并尝试提交登录表单。
+- 如果遇到验证码、短信/邮件 MFA、设备确认或其他风控页面，脚本会提示你人工接管；完成后它会继续等待并抓取 `serviceTicketId`。
+- 登录成功后，脚本会抓取 `serviceTicketId`，再复用 `garth` 现有逻辑换取 OAuth token，并加密写入 `db/garth_token.enc`。
+- 默认等待 300 秒；如果需要更长时间，可以这样运行：
+
+```bash
+GARMIN_BROWSER_TIMEOUT_SECONDS=600 python3 scripts/garmin/generate_garth_token_browser.py
+```
+
+### GitHub Actions 直接跑 Garmin 登录
+- workflow 现在默认采用 `GARTH_TOKEN` 优先，失效时再走 headless Playwright 自动登录刷新 token。
+- 需要在仓库 Secrets 中至少配置：`GARMIN_AUTH_DOMAIN`、`GARMIN_EMAIL`、`GARMIN_PASSWORD`、`GARMIN_TOKEN_SALT`、`COROS_EMAIL`、`COROS_PASSWORD`。
+- workflow 会自动安装 Playwright 和 Chromium，并注入：
+
+```bash
+GARMIN_LOGIN_MODE=browser
+GARMIN_BROWSER_HEADLESS=1
+GARMIN_BROWSER_CI_MODE=1
+```
+
+- 在 GitHub Hosted runner 上，如果 Garmin 强制出现验证码、MFA 或额外确认页，job 会直接失败；这是无人值守 CI 的限制，不会等待人工接管。
+- 为了降低风控概率，建议继续保留并提交 `db/garth_token.enc`，让 workflow 优先复用已有 token。
+
+## COROS 代理说明
+- 如果运行时访问 `*.coros.com` 出现 TLS 握手失败、`SSLEOFError`、`SSL_ERROR_SYSCALL` 等错误，可以为脚本或 GitHub Actions 配置 `HTTPS_PROXY` / `HTTP_PROXY`。
+- 当前代码会自动读取这些环境变量，`CorosClient` 和 COROS OSS 凭证请求都会走代理。
+- 在 GitHub Actions 中，可把 `HTTPS_PROXY`、`HTTP_PROXY`、`NO_PROXY` 配置为 Repository Secrets；workflow 已支持自动注入。
 
 ## garth 升级价值
 - `garth` 已从 `0.4.38` 升级到 `0.7.10`。
