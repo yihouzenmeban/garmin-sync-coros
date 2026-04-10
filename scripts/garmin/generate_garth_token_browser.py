@@ -58,14 +58,26 @@ POST_LOGIN_BUTTON_SELECTORS = (
     "button:has-text('Agree')",
     "button:has-text('Remember me')",
 )
-MANUAL_STEP_KEYWORDS = (
-    "verification code",
-    "verify",
-    "two-factor",
+MANUAL_STEP_URL_KEYWORDS = (
+    "captcha",
+    "challenge",
     "2fa",
     "mfa",
+)
+MANUAL_STEP_TEXT_KEYWORDS = (
+    "verification code",
+    "security code",
+    "enter the code",
+    "enter code",
+    "two-factor",
+    "two factor",
+    "2fa",
+    "mfa",
+    "multi-factor",
+    "multifactor",
     "captcha",
     "approve sign in",
+    "approve this sign in",
 )
 
 
@@ -198,16 +210,22 @@ def _click_first_visible_locator(page, selectors) -> bool:
 
 def requires_manual_takeover(page) -> bool:
     current_url = str(getattr(page, "url", "")).lower()
-    if any(keyword in current_url for keyword in MANUAL_STEP_KEYWORDS):
+    if any(keyword in current_url for keyword in MANUAL_STEP_URL_KEYWORDS):
         return True
 
-    if hasattr(page, "content"):
+    if hasattr(page, "locator"):
         try:
-            content = str(page.content()).lower()
+            body = page.locator("body")
+            content = ""
+            if body.count():
+                content = str(body.first.inner_text()).lower()
         except Exception:
             content = ""
-        if any(keyword in content for keyword in MANUAL_STEP_KEYWORDS):
-            return True
+    else:
+        content = ""
+
+    if any(keyword in content for keyword in MANUAL_STEP_TEXT_KEYWORDS):
+        return True
 
     return False
 
